@@ -1,66 +1,152 @@
+#if defined(UNICODE) && !defined(_UNICODE)
+    #define _UNICODE
+#elif defined(_UNICODE) && !defined(UNICODE)
+    #define UNICODE
+#endif
+
 #include <windows.h>
+#include <stdio.h>
+#include <ctype.h>
 
-/* This is where all the input to the window goes to */
-LRESULT CALLBACK WndProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam) {
-	switch(Message) {
-		
-		/* Upon destruction, tell the main thread to stop */
-		case WM_DESTROY: {
-			PostQuitMessage(0);
-			break;
-		}
-		
-		/* All other messages (a lot of them) are processed using default procedures */
-		default:
-			return DefWindowProc(hwnd, Message, wParam, lParam);
-	}
-	return 0;
+#define ID_EDIT1 1
+#define ID_EDIT2 2
+#define ID_BUTTON_ADD 3
+#define ID_BUTTON_SUB 4
+#define ID_BUTTON_MUL 5
+#define ID_BUTTON_DIV 6
+
+LRESULT CALLBACK WindowProcedure(HWND, UINT, WPARAM, LPARAM);
+void PerformCalculation(HWND, int);
+BOOL IsValidNumber(const char*);
+
+HWND hEdit1, hEdit2, hStatic;
+HFONT hFont;
+
+int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR args, int nCmdShow) {
+    WNDCLASS wc = {};
+    wc.hInstance = hInst;
+    wc.lpszClassName = "CalculatorWindow";
+    wc.lpfnWndProc = WindowProcedure;
+    wc.hbrBackground = CreateSolidBrush(RGB(0, 255, 127));
+    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wc.style = CS_HREDRAW | CS_VREDRAW;
+
+    RegisterClass(&wc);
+
+    HWND hwnd = CreateWindow("CalculatorWindow", "My Calculator",
+        WS_OVERLAPPED | WS_SYSMENU, 100, 100, 250, 200,
+        NULL, NULL, hInst, NULL);
+
+    ShowWindow(hwnd, nCmdShow);
+    MSG msg = { 0 };
+    while (GetMessage(&msg, NULL, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
+    return 0;
 }
 
-/* The 'main' function of Win32 GUI programs: this is where execution starts */
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
-	WNDCLASSEX wc; /* A properties struct of our window */
-	HWND hwnd; /* A 'HANDLE', hence the H, or a pointer to our window */
-	MSG msg; /* A temporary location for all messages */
+LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    switch (msg) {
+    case WM_CREATE:
+        hFont = CreateFont(16, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+                           DEFAULT_CHARSET, OUT_OUTLINE_PRECIS, CLIP_DEFAULT_PRECIS,
+                           CLEARTYPE_QUALITY, VARIABLE_PITCH, TEXT("Arial"));
 
-	/* zero out the struct and set the stuff we want to modify */
-	memset(&wc,0,sizeof(wc));
-	wc.cbSize	 = sizeof(WNDCLASSEX);
-	wc.lpfnWndProc	 = WndProc; /* This is where we will send messages to */
-	wc.hInstance	 = hInstance;
-	wc.hCursor	 = LoadCursor(NULL, IDC_ARROW);
-	
-	/* White, COLOR_WINDOW is just a #define for a system color, try Ctrl+Clicking it */
-	wc.hbrBackground = (HBRUSH)(COLOR_WINDOW+1);
-	wc.lpszClassName = "WindowClass";
-	wc.hIcon	 = LoadIcon(NULL, IDI_APPLICATION); /* Load a standard icon */
-	wc.hIconSm	 = LoadIcon(NULL, IDI_APPLICATION); /* use the name "A" to use the project icon */
+        hStatic = CreateWindow("STATIC", "Please input two numbers", WS_VISIBLE | WS_CHILD | SS_CENTER,
+                               20, 10, 200, 20, hwnd, NULL, NULL, NULL);
+        SendMessage(hStatic, WM_SETFONT, (WPARAM)hFont, TRUE);
 
-	if(!RegisterClassEx(&wc)) {
-		MessageBox(NULL, "Window Registration Failed!","Error!",MB_ICONEXCLAMATION|MB_OK);
-		return 0;
-	}
+        // Removed ES_NUMBER to allow decimal points and negative numbers
+        hEdit1 = CreateWindow("EDIT", "", WS_VISIBLE | WS_CHILD | WS_BORDER,
+                              70, 40, 100, 20, hwnd, (HMENU)ID_EDIT1, NULL, NULL);
+        hEdit2 = CreateWindow("EDIT", "", WS_VISIBLE | WS_CHILD | WS_BORDER,
+                              70, 70, 100, 20, hwnd, (HMENU)ID_EDIT2, NULL, NULL);
 
-	hwnd = CreateWindowEx(WS_EX_CLIENTEDGE,"WindowClass","Caption",WS_VISIBLE|WS_OVERLAPPEDWINDOW,
-		CW_USEDEFAULT, /* x */
-		CW_USEDEFAULT, /* y */
-		640, /* width */
-		480, /* height */
-		NULL,NULL,hInstance,NULL);
+        CreateWindow("BUTTON", "+", WS_VISIBLE | WS_CHILD | WS_BORDER,
+                     40, 110, 40, 30, hwnd, (HMENU)ID_BUTTON_ADD, NULL, NULL);
+        CreateWindow("BUTTON", "-", WS_VISIBLE | WS_CHILD | WS_BORDER,
+                     90, 110, 40, 30, hwnd, (HMENU)ID_BUTTON_SUB, NULL, NULL);
+        CreateWindow("BUTTON", "*", WS_VISIBLE | WS_CHILD | WS_BORDER,
+                     140, 110, 40, 30, hwnd, (HMENU)ID_BUTTON_MUL, NULL, NULL);
+        CreateWindow("BUTTON", "/", WS_VISIBLE | WS_CHILD | WS_BORDER,
+                     190, 110, 40, 30, hwnd, (HMENU)ID_BUTTON_DIV, NULL, NULL);
+        break;
 
-	if(hwnd == NULL) {
-		MessageBox(NULL, "Window Creation Failed!","Error!",MB_ICONEXCLAMATION|MB_OK);
-		return 0;
-	}
+    case WM_COMMAND:
+        switch (LOWORD(wp)) {
+        case ID_BUTTON_ADD: PerformCalculation(hwnd, ID_BUTTON_ADD); break;
+        case ID_BUTTON_SUB: PerformCalculation(hwnd, ID_BUTTON_SUB); break;
+        case ID_BUTTON_MUL: PerformCalculation(hwnd, ID_BUTTON_MUL); break;
+        case ID_BUTTON_DIV: PerformCalculation(hwnd, ID_BUTTON_DIV); break;
+        }
+        break;
 
-	/*
-		This is the heart of our program where all input is processed and 
-		sent to WndProc. Note that GetMessage blocks code flow until it receives something, so
-		this loop will not produce unreasonably high CPU usage
-	*/
-	while(GetMessage(&msg, NULL, 0, 0) > 0) { /* If no error is received... */
-		TranslateMessage(&msg); /* Translate key codes to chars if present */
-		DispatchMessage(&msg); /* Send it to WndProc */
-	}
-	return msg.wParam;
+    case WM_CTLCOLORSTATIC:
+        SetBkMode((HDC)wp, TRANSPARENT);
+        return (LRESULT)GetStockObject(NULL_BRUSH);
+
+    case WM_DESTROY:
+        DeleteObject(hFont);
+        PostQuitMessage(0);
+        break;
+
+    default:
+        return DefWindowProc(hwnd, msg, wp, lp);
+    }
+    return 0;
 }
+
+// Function to validate if input is a valid floating-point number
+BOOL IsValidNumber(const char* str) {
+    int dotCount = 0, signCount = 0;
+
+    while (*str) {
+        if (*str == '.') {
+            if (++dotCount > 1) return FALSE;  // Only one decimal allowed
+        }
+        else if (*str == '-' || *str == '+') {
+            if (signCount > 0 || (str != str + 1)) return FALSE;  // Only one sign at the beginning
+            signCount++;
+        }
+        else if (!isdigit((unsigned char)*str)) {
+            return FALSE;  // Not a number
+        }
+        str++;
+    }
+    return TRUE;
+}
+
+void PerformCalculation(HWND hwnd, int operation) {
+    char buffer1[100], buffer2[100], resultText[100];
+    GetWindowText(hEdit1, buffer1, 100);
+    GetWindowText(hEdit2, buffer2, 100);
+
+    // Validate input
+    if (!IsValidNumber(buffer1) || !IsValidNumber(buffer2)) {
+        MessageBox(hwnd, "Invalid input! Please enter valid numbers.", "Error", MB_OK | MB_ICONERROR);
+        return;
+    }
+
+    double num1 = atof(buffer1);
+    double num2 = atof(buffer2);
+    double result = 0.0;
+
+    switch (operation) {
+    case ID_BUTTON_ADD: result = num1 + num2; break;
+    case ID_BUTTON_SUB: result = num1 - num2; break;
+    case ID_BUTTON_MUL: result = num1 * num2; break;
+    case ID_BUTTON_DIV:
+        if (num2 != 0)
+            result = num1 / num2;
+        else {
+            MessageBox(hwnd, "Cannot divide by zero!", "Error", MB_OK | MB_ICONERROR);
+            return;
+        }
+        break;
+    }
+
+    snprintf(resultText, sizeof(resultText), "Result: %.2f", result);
+    MessageBox(hwnd, resultText, "Result", MB_OK);
+}
+
